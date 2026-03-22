@@ -2,7 +2,10 @@
 import sys
 import socket
 import ssl
+import re
 from urllib.parse import urlparse
+
+cache = {}
 
 def decode_chunked(data: bytes) -> bytes:
     result = b""
@@ -15,7 +18,17 @@ def decode_chunked(data: bytes) -> bytes:
         data = data[crlf + 2 + size + 2:]
     return result
 
+def html_to_text(html: str) -> str:
+    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    for tag in ["p", "div", "br", "li", "h1", "h2", "h3", "tr"]:
+        html = re.sub(rf"</?{tag}[^>]*>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"<[^>]+>", "", html)
+    entities = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"'}
+    for ent, char in entities.items(): html = html.replace(ent, char)
+    return "\n".join([l.strip() for l in html.splitlines() if l.strip()])
+
 def make_request(url, method="GET", max_redirects=10):
+    if url in cache: return cache[url]
     for _ in range(max_redirects):
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
@@ -48,7 +61,9 @@ def make_request(url, method="GET", max_redirects=10):
         if headers.get("transfer-encoding", "").lower() == "chunked":
             body = decode_chunked(body)
 
-        return {"status": status_code, "headers": headers, "body": body.decode(errors="replace"), "url": url}
+            result = {"body": body.decode(errors="replace")}
+            cache[url] = result
+            return result
     return None
 
 if __name__ == "__main__":
