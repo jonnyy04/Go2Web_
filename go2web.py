@@ -2,70 +2,289 @@
 import sys
 import socket
 import ssl
-import re
-from urllib.parse import urlparse
+import json
+from urllib.parse import urlparse, urlencode, quote_plus
 
+# ─── Cache simplu in memorie ───────────────────────────────────────────────────
 cache = {}
 
-def decode_chunked(data: bytes) -> bytes:
-    result = b""
-    while data:
-        crlf = data.find(b"\r\n")
-        if crlf == -1: break
-        size = int(data[:crlf], 16)
-        if size == 0: break
-        result += data[crlf + 2 : crlf + 2 + size]
-        data = data[crlf + 2 + size + 2:]
-    return result
-
-def html_to_text(html: str) -> str:
-    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
-    for tag in ["p", "div", "br", "li", "h1", "h2", "h3", "tr"]:
-        html = re.sub(rf"</?{tag}[^>]*>", "\n", html, flags=re.IGNORECASE)
-    html = re.sub(r"<[^>]+>", "", html)
-    entities = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"'}
-    for ent, char in entities.items(): html = html.replace(ent, char)
-    return "\n".join([l.strip() for l in html.splitlines() if l.strip()])
+# ─── HTTP REQUEST ──────────────────────────────────────────────────────────────
 
 def make_request(url, method="GET", max_redirects=10):
-    if url in cache: return cache[url]
+
     for _ in range(max_redirects):
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
         host = parsed.hostname
         port = parsed.port or (443 if scheme == "https" else 80)
-        path = (parsed.path or "/") + ("?" + parsed.query if parsed.query else "")
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
 
-        request = f"{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: go2web/1.0\r\n\r\n"
+        # Cache check
+        cache_key = url
+        if cache_key in cache:
+            print("[cache] Raspuns din cache.\n")
+            return cache[cache_key]
 
+        # Construim request-ul HTTP
+        request = (
+            f"{method} {path} HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Accept: text/html,application/json\r\n"
+            f"Accept-Language: en-US,en;q=0.9\r\n"
+            f"Connection: close\r\n"
+            f"User-Agent: go2web/1.0\r\n"
+            f"\r\n"
+        )
+
+        # Deschidem socket TCP
         raw_sock = socket.create_connection((host, port), timeout=10)
-        sock = ssl.create_default_context().wrap_socket(raw_sock, server_hostname=host) if scheme == "https" else raw_sock
+
+        if scheme == "https":
+            context = ssl.create_default_context()
+            sock = context.wrap_socket(raw_sock, server_hostname=host)
+        else:
+            sock = raw_sock
+
         sock.sendall(request.encode("utf-8"))
 
+        # Citim raspunsul complet
         response = b""
         while True:
             chunk = sock.recv(4096)
-            if not chunk: break
+            if not chunk:
+                break
             response += chunk
         sock.close()
 
-        header_part, body = response.split(b"\r\n\r\n", 1) if b"\r\n\r\n" in response else (response, b"")
-        headers = {line.split(": ", 1)[0].lower(): line.split(": ", 1)[1] for line in header_part.decode().split("\r\n")[1:] if ": " in line}
-        status_code = int(header_part.decode().split(" ")[1])
+        # Separam header-ele de body
+        if b"\r\n\r\n" in response:
+            header_part, body = response.split(b"\r\n\r\n", 1)
+        else:
+            header_part, body = response, b""
 
+        headers_text = header_part.decode("utf-8", errors="replace")
+        header_lines = headers_text.split("\r\n")
+        status_line = header_lines[0]
+        status_code = int(status_line.split(" ")[1])
+
+        # Parsam header-ele intr-un dict
+        headers = {}
+        for line in header_lines[1:]:
+            if ": " in line:
+                k, v = line.split(": ", 1)
+                headers[k.lower()] = v
+
+        # Redirect?
         if status_code in (301, 302, 303, 307, 308):
-            url = headers.get("location", "")
-            if url.startswith("/"): url = f"{scheme}://{host}{url}"
+            new_url = headers.get("location", "")
+            if new_url.startswith("/"):
+                new_url = f"{scheme}://{host}{new_url}"
+            print(f"[redirect] {status_code} -> {new_url}")
+            url = new_url
             continue
 
+        # Decodare body
+        encoding = "utf-8"
+        content_type = headers.get("content-type", "")
+        if "charset=" in content_type:
+            encoding = content_type.split("charset=")[-1].strip()
+
+        # Chunked transfer encoding
         if headers.get("transfer-encoding", "").lower() == "chunked":
             body = decode_chunked(body)
 
-            result = {"body": body.decode(errors="replace")}
-            cache[url] = result
-            return result
-    return None
+        body_text = body.decode(encoding, errors="replace")
+
+        result = {
+            "status": status_code,
+            "headers": headers,
+            "content_type": content_type,
+            "body": body_text,
+            "url": url,
+        }
+
+        # Salvam in cache
+        cache[cache_key] = result
+        return result
+
+    print("Prea multe redirecturi!")
+    sys.exit(1)
+
+
+def decode_chunked(data: bytes) -> bytes:
+    """Decodeaza Transfer-Encoding: chunked."""
+    result = b""
+    while data:
+        crlf = data.find(b"\r\n")
+        if crlf == -1:
+            break
+        size = int(data[:crlf], 16)
+        if size == 0:
+            break
+        result += data[crlf + 2 : crlf + 2 + size]
+        data = data[crlf + 2 + size + 2:]
+    return result
+
+
+# ─── HTML → TEXT ──────────────────────────────────────────────────────────────
+
+def html_to_text(html: str) -> str:
+    """Converteste HTML in text lizibil fara librarii externe."""
+    import re
+
+    # Eliminam <script> si <style>
+    html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Adaugam newline la taguri de bloc
+    for tag in ["p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"]:
+        html = re.sub(rf"</?{tag}[^>]*>", "\n", html, flags=re.IGNORECASE)
+
+    # Eliminam toate tagurile ramase
+    html = re.sub(r"<[^>]+>", "", html)
+
+    # Decodare entitati HTML de baza
+    entities = {
+        "&amp;": "&", "&lt;": "<", "&gt;": ">",
+        "&quot;": '"', "&#39;": "'", "&nbsp;": " ",
+        "&apos;": "'", "&mdash;": "—", "&ndash;": "–",
+        "&laquo;": "«", "&raquo;": "»",
+    }
+    for ent, char in entities.items():
+        html = html.replace(ent, char)
+
+    # Curatam linii goale multiple
+    lines = [line.strip() for line in html.splitlines()]
+    lines = [l for l in lines if l]
+    return "\n".join(lines)
+
+
+# ─── SEARCH ───────────────────────────────────────────────────────────────────
+
+def search(term: str):
+    """Cauta pe DuckDuckGo si afiseaza top 10 rezultate."""
+    import re
+
+    query = quote_plus(term)
+    url = f"https://html.duckduckgo.com/html/?q={query}"
+
+    print(f"Caut: {term}\n")
+    response = make_request(url)
+    body = response["body"]
+
+    # Extragem rezultatele din HTML
+    results = []
+
+    # DuckDuckGo HTML: titlul e in <a class="result__a" href="...">
+    pattern = re.compile(
+        r'<a[^>]+class=["\']result__a["\'][^>]+href=["\'](.*?)["\'][^>]*>(.*?)</a>',
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    for match in pattern.finditer(body):
+        href = match.group(1).strip()
+        title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+
+        # DuckDuckGo foloseste uneori redirecturi interne
+        if href.startswith("//duckduckgo.com/l/?"):
+            uddg = re.search(r"uddg=([^&]+)", href)
+            if uddg:
+                from urllib.parse import unquote
+                href = unquote(uddg.group(1))
+
+        if href.startswith("http") and title:
+            results.append((title, href))
+
+        if len(results) >= 10:
+            break
+
+    if not results:
+        print("Nu s-au gasit rezultate.")
+        return []
+
+    print(f"Top {len(results)} rezultate pentru '{term}':\n")
+    for i, (title, link) in enumerate(results, 1):
+        print(f"{i}. {title}")
+        print(f"   {link}\n")
+
+    return results
+
+
+# ─── MAIN ─────────────────────────────────────────────────────────────────────
+
+def show_help():
+    print("""
+go2web - HTTP over TCP Sockets
+================================
+Utilizare:
+  go2web -u <URL>          Face un request HTTP la URL si afiseaza raspunsul
+  go2web -s <termen>       Cauta termenul si afiseaza top 10 rezultate
+  go2web -h                Afiseaza acest ajutor
+
+Exemple:
+  go2web -u https://example.com
+  go2web -s retele de calculatoare
+""")
+
+
+def cmd_url(url: str):
+
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    print(f"Conectare la: {url}\n")
+    response = make_request(url)
+    content_type = response["content_type"]
+
+    if "json" in content_type:
+        try:
+            data = json.loads(response["body"])
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+        except Exception:
+            print(response["body"])
+    else:
+        text = html_to_text(response["body"])
+        print(text)
+
+
+def main():
+    args = sys.argv[1:]
+
+    if not args or args[0] == "-h":
+        show_help()
+        return
+
+    if args[0] == "-u":
+        if len(args) < 2:
+            print("Eroare: specificati un URL dupa -u")
+            sys.exit(1)
+        cmd_url(args[1])
+
+    elif args[0] == "-s":
+        if len(args) < 2:
+            print("Eroare: specificati un termen de cautare dupa -s")
+            sys.exit(1)
+        term = " ".join(args[1:])
+        results = search(term)
+
+        # Optiune interactiva: deschide un link din rezultate
+        if results:
+            print("Vrei sa accesezi un link? Scrie numarul (sau Enter pentru a iesi):")
+            try:
+                choice = input("> ").strip()
+                if choice.isdigit():
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(results):
+                        cmd_url(results[idx][1])
+            except (KeyboardInterrupt, EOFError):
+                pass
+    else:
+        print(f"Optiune necunoscuta: {args[0]}")
+        show_help()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        print(make_request(sys.argv[1])["body"])
+    main()
