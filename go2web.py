@@ -3,6 +3,7 @@ import sys
 import socket
 import ssl
 import json
+import ipaddress
 from urllib.parse import urlparse, urlencode, quote_plus
 
 # ─── Cache simplu in memorie ───────────────────────────────────────────────────
@@ -111,6 +112,42 @@ def make_request(url, method="GET", max_redirects=10):
 
     print("Prea multe redirecturi!")
     sys.exit(1)
+
+
+def build_url_candidates(raw_url: str):
+    """Genereaza variante de URL pentru input-uri scurte (ex: 'google')."""
+    value = raw_url.strip()
+    if not value:
+        return []
+
+    if not value.startswith("http://") and not value.startswith("https://"):
+        value = "https://" + value
+
+    parsed = urlparse(value)
+    host = parsed.hostname
+
+    if not host:
+        return [value]
+
+    # Nu completam automat localhost sau IP-uri.
+    try:
+        ipaddress.ip_address(host)
+        return [value]
+    except ValueError:
+        pass
+
+    if host == "localhost" or "." in host:
+        return [value]
+
+    candidates = [value]
+    candidates.append(value.replace(f"//{host}", f"//{host}.com", 1))
+    candidates.append(value.replace(f"//{host}", f"//www.{host}.com", 1))
+
+    unique = []
+    for item in candidates:
+        if item not in unique:
+            unique.append(item)
+    return unique
 
 
 def decode_chunked(data: bytes) -> bytes:
@@ -230,12 +267,29 @@ Exemple:
 
 
 def cmd_url(url: str):
+    candidates = build_url_candidates(url)
+    if not candidates:
+        print("URL invalid.")
+        return
 
-    if not url.startswith("http"):
-        url = "https://" + url
+    response = None
+    last_error = None
 
-    print(f"Conectare la: {url}\n")
-    response = make_request(url)
+    for attempt_url in candidates:
+        print(f"Conectare la: {attempt_url}\n")
+        try:
+            response = make_request(attempt_url)
+            break
+        except (socket.gaierror, TimeoutError, OSError, ssl.SSLError) as exc:
+            last_error = exc
+
+    if response is None:
+        print("Nu am putut rezolva/adresa serverul pentru URL-ul introdus.")
+        print("Verifica URL-ul (ex: google.com) si conexiunea la internet.")
+        if last_error:
+            print(f"Detalii: {last_error}")
+        return
+
     content_type = response["content_type"]
 
     if "json" in content_type:
