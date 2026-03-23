@@ -4,10 +4,66 @@ import socket
 import ssl
 import json
 import ipaddress
+import os
+import hashlib
 from urllib.parse import urlparse, urlencode, quote_plus
 
 # ─── Cache simplu in memorie ───────────────────────────────────────────────────
 cache = {}
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
+
+
+def _cache_path(url: str) -> str:
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return os.path.join(CACHE_DIR, f"{digest}.json")
+
+
+def load_from_cache(url: str):
+    if url in cache:
+        print("[cache] Raspuns din cache.\n")
+        return cache[url]
+
+    path = _cache_path(url)
+    if not os.path.exists(path):
+        return None
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if payload.get("url") != url:
+        return None
+
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+
+    cache[url] = result
+    print("[cache] Raspuns din cache.\n")
+    return result
+
+
+def save_to_cache(url: str, result: dict):
+    cache[url] = result
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    path = _cache_path(url)
+    temp_path = path + ".tmp"
+
+    payload = {
+        "url": url,
+        "result": result,
+    }
+
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(temp_path, path)
+    except OSError:
+        # Daca nu putem scrie pe disk, pastram macar cache-ul in memorie.
+        pass
 
 # ─── HTTP REQUEST ──────────────────────────────────────────────────────────────
 
@@ -22,11 +78,11 @@ def make_request(url, method="GET", max_redirects=10):
         if parsed.query:
             path += "?" + parsed.query
 
-        # Cache check
+        # Cache check (memorie + disk)
         cache_key = url
-        if cache_key in cache:
-            print("[cache] Raspuns din cache.\n")
-            return cache[cache_key]
+        cached = load_from_cache(cache_key)
+        if cached is not None:
+            return cached
 
         # Construim request-ul HTTP
         request = (
@@ -106,8 +162,8 @@ def make_request(url, method="GET", max_redirects=10):
             "url": url,
         }
 
-        # Salvam in cache
-        cache[cache_key] = result
+        # Salvam in cache (memorie + disk)
+        save_to_cache(cache_key, result)
         return result
 
     print("Prea multe redirecturi!")
