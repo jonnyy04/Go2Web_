@@ -8,7 +8,6 @@ import os
 import hashlib
 from urllib.parse import urlparse, urlencode, quote_plus
 
-# ─── Cache simplu in memorie ───────────────────────────────────────────────────
 cache = {}
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
 
@@ -171,7 +170,7 @@ def make_request(url, method="GET", max_redirects=10):
 
 
 def build_url_candidates(raw_url: str):
-    """Genereaza variante de URL pentru input-uri scurte (ex: 'google')."""
+    """Genereaza variante de URL pentru input-uri scurte."""
     value = raw_url.strip()
     if not value:
         return []

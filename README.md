@@ -1,6 +1,6 @@
 ﻿# Go2Web - HTTP over TCP Sockets
 
-CLI tool for Lab 5 that performs HTTP/HTTPS requests directly over TCP sockets (without using built-in or third-party HTTP client libraries).
+CLI tool for Lab 5 that performs HTTP/HTTPS requests directly over TCP sockets.
 
 ## Lab Requirements Covered
 
@@ -70,7 +70,7 @@ Usage:
 
 ## Results
 
-![image](img/image.png)
+![image](img.gif)
 
 
 ## Notes
