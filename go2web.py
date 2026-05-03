@@ -6,6 +6,7 @@ import json
 import ipaddress
 import os
 import hashlib
+import time
 from urllib.parse import urlparse, urlencode, quote_plus
 
 cache = {}
@@ -15,6 +16,32 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
 def _cache_path(url: str) -> str:
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
     return os.path.join(CACHE_DIR, f"{digest}.json")
+
+
+def cleanup_old_cache():
+    """Sterge din cache fisierele mai vechi de 1 ora."""
+    if not os.path.exists(CACHE_DIR):
+        return
+
+    current_time = time.time()
+    for filename in os.listdir(CACHE_DIR):
+        if not filename.endswith(".json"):
+            continue
+
+        filepath = os.path.join(CACHE_DIR, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+
+            timestamp = payload.get("timestamp", 0)
+            age = current_time - timestamp
+
+            # Sterge daca e mai vechi de 1 ora (3600 secunde)
+            if age > 3600: #<-------------------------------
+                os.remove(filepath)
+                print(f"[cleanup] Sters cache: {filename}")
+        except (OSError, json.JSONDecodeError):
+            pass
 
 
 def load_from_cache(url: str):
@@ -35,6 +62,16 @@ def load_from_cache(url: str):
     if payload.get("url") != url:
         return None
 
+    # Verificam daca cache-ul a expirat (mai vechi de 1 ora)
+    timestamp = payload.get("timestamp", 0)
+    if time.time() - timestamp > 3600:
+        # Cache expirat, stergem fisierul
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return None
+
     result = payload.get("result")
     if not isinstance(result, dict):
         return None
@@ -53,6 +90,7 @@ def save_to_cache(url: str, result: dict):
 
     payload = {
         "url": url,
+        "timestamp": time.time(),
         "result": result,
     }
 
@@ -359,6 +397,9 @@ def cmd_url(url: str):
 
 
 def main():
+    # Curatamorb cache-ul vechi la startup
+    cleanup_old_cache()
+
     args = sys.argv[1:]
 
     if not args or args[0] == "-h":
