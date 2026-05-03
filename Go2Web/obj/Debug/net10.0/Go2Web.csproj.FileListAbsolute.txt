@@ -1,0 +1,15 @@
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\bin\Debug\net10.0\Go2Web.exe
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\bin\Debug\net10.0\Go2Web.deps.json
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\bin\Debug\net10.0\Go2Web.runtimeconfig.json
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\bin\Debug\net10.0\Go2Web.dll
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\bin\Debug\net10.0\Go2Web.pdb
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.AssemblyInfoInputs.cache
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.AssemblyInfo.cs
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.csproj.CoreCompileInputs.cache
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.sourcelink.json
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.dll
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\refint\Go2Web.dll
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.pdb
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\Go2Web.genruntimeconfig.cache
+C:\Users\ionvo\OneDrive\Desktop\Pw\Lab3\Go2Web\obj\Debug\net10.0\ref\Go2Web.dll
